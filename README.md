@@ -3,19 +3,6 @@
 **Reference:** [A PyTorch Tutorial to Image Captioning (sgrvinod)](https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Image-Captioning)  
 **Paper:** [Show, Attend and Tell (Xu et al., 2015)](https://arxiv.org/abs/1502.03044)
 
----
-##  Giảng Viên Hướng Dẫn
-**ThS. Phùng Thái Thiên Trang*  
-
-*Khoa Công nghệ Thông tin – Trường Đại học Sài Gòn*
-
-##  Nhóm Thực Hiện
-
-| STT | Họ và Tên          | Mã Số Sinh Viên |
-|:---:|--------------------|:---------------:|
-| 1 | Đỗ Phú Thành       | 3122411189 |
-| 2 | Huỳnh Duy Khang | 3122411088 |
-| 3 | Võ Thành Danh   | 3122411024 |
 
 ---
 
