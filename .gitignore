@@ -1,0 +1,31 @@
+# Thư mục IDE
+.idea/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Model checkpoints / weights
+*.pth.tar
+*.pth
+*.pt
+*.ckpt
+*.hdf5
+*.h5
+
+# Large images or outputs
+*.png
+*.jpg
+*.jpeg
+*.bmp
+
+# Misc
+*.log
+.DS_Store
+

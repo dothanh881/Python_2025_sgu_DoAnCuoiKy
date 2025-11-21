@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import skimage.transform
 import argparse
-from scipy.misc import imread, imresize
 from PIL import Image
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -15,25 +14,23 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def caption_image_beam_search(encoder, decoder, image_path, word_map, beam_size=3):
     """
-    Reads an image and captions it with beam search.
+    Đọc ảnh và sinh caption bằng Beam Search.
 
-    :param encoder: encoder model
-    :param decoder: decoder model
-    :param image_path: path to image
-    :param word_map: word map
-    :param beam_size: number of sequences to consider at each decode-step
-    :return: caption, weights for visualization
+    :param encoder: mô hình encoder
+    :param decoder: mô hình decoder
+    :param image_path: đường dẫn ảnh
+    :param word_map: ánh xạ từ -> chỉ mục
+    :param beam_size: kích thước beam
+    :return: câu mô tả (danh sách chỉ số), ma trận trọng số attention
     """
 
     k = beam_size
     vocab_size = len(word_map)
 
-    # Read image and process
-    img = imread(image_path)
-    if len(img.shape) == 2:
-        img = img[:, :, np.newaxis]
-        img = np.concatenate([img, img, img], axis=2)
-    img = imresize(img, (256, 256))
+    # Đọc ảnh và tiền xử lý
+    img = Image.open(image_path).convert('RGB')
+    img = img.resize((256, 256), Image.Resampling.LANCZOS)
+    img = np.array(img)
     img = img.transpose(2, 0, 1)
     img = img / 255.
     img = torch.FloatTensor(img).to(device)
@@ -48,35 +45,35 @@ def caption_image_beam_search(encoder, decoder, image_path, word_map, beam_size=
     enc_image_size = encoder_out.size(1)
     encoder_dim = encoder_out.size(3)
 
-    # Flatten encoding
+    # Làm phẳng không gian ảnh
     encoder_out = encoder_out.view(1, -1, encoder_dim)  # (1, num_pixels, encoder_dim)
     num_pixels = encoder_out.size(1)
 
-    # We'll treat the problem as having a batch size of k
+    # Nhân bản để giả lập batch size = k
     encoder_out = encoder_out.expand(k, num_pixels, encoder_dim)  # (k, num_pixels, encoder_dim)
 
-    # Tensor to store top k previous words at each step; now they're just <start>
+    # Tensor lưu từ trước đó (khởi tạo với <start>)
     k_prev_words = torch.LongTensor([[word_map['<start>']]] * k).to(device)  # (k, 1)
 
-    # Tensor to store top k sequences; now they're just <start>
+    # Tensor lưu các sequence hiện tại (khởi tạo chỉ có <start>)
     seqs = k_prev_words  # (k, 1)
 
-    # Tensor to store top k sequences' scores; now they're just 0
+    # Điểm hiện tại của các sequence (khởi tạo = 0)
     top_k_scores = torch.zeros(k, 1).to(device)  # (k, 1)
 
-    # Tensor to store top k sequences' alphas; now they're just 1s
+    # Tensor lưu alpha (attention) cho mỗi sequence
     seqs_alpha = torch.ones(k, 1, enc_image_size, enc_image_size).to(device)  # (k, 1, enc_image_size, enc_image_size)
 
-    # Lists to store completed sequences, their alphas and scores
+    # Danh sách lưu sequence hoàn chỉnh, alpha và điểm
     complete_seqs = list()
     complete_seqs_alpha = list()
     complete_seqs_scores = list()
 
-    # Start decoding
+    # Bắt đầu giải mã
     step = 1
     h, c = decoder.init_hidden_state(encoder_out)
 
-    # s is a number less than or equal to k, because sequences are removed from this process once they hit <end>
+    # Vòng lặp beam search (loại sequence khi gặp <end>)
     while True:
 
         embeddings = decoder.embedding(k_prev_words).squeeze(1)  # (s, embed_dim)
@@ -85,7 +82,7 @@ def caption_image_beam_search(encoder, decoder, image_path, word_map, beam_size=
 
         alpha = alpha.view(-1, enc_image_size, enc_image_size)  # (s, enc_image_size, enc_image_size)
 
-        gate = decoder.sigmoid(decoder.f_beta(h))  # gating scalar, (s, encoder_dim)
+        gate = decoder.sigmoid(decoder.f_beta(h))  # cổng (s, encoder_dim)
         awe = gate * awe
 
         h, c = decoder.decode_step(torch.cat([embeddings, awe], dim=1), (h, c))  # (s, decoder_dim)
@@ -93,38 +90,37 @@ def caption_image_beam_search(encoder, decoder, image_path, word_map, beam_size=
         scores = decoder.fc(h)  # (s, vocab_size)
         scores = F.log_softmax(scores, dim=1)
 
-        # Add
+        # Cộng điểm trước đó vào
         scores = top_k_scores.expand_as(scores) + scores  # (s, vocab_size)
 
-        # For the first step, all k points will have the same scores (since same k previous words, h, c)
+        # Lấy top k ứng viên
         if step == 1:
-            top_k_scores, top_k_words = scores[0].topk(k, 0, True, True)  # (s)
+            top_k_scores, top_k_words = scores[0].topk(k, 0, True, True)  # (k)
         else:
-            # Unroll and find top scores, and their unrolled indices
-            top_k_scores, top_k_words = scores.view(-1).topk(k, 0, True, True)  # (s)
+            top_k_scores, top_k_words = scores.view(-1).topk(k, 0, True, True)  # (k)
 
-        # Convert unrolled indices to actual indices of scores
-        prev_word_inds = top_k_words / vocab_size  # (s)
-        next_word_inds = top_k_words % vocab_size  # (s)
+        # Chuyển chỉ số unrolled về chỉ số seq và từ tiếp theo
+        prev_word_inds = (top_k_words // vocab_size)
+        next_word_inds = (top_k_words % vocab_size)
 
-        # Add new words to sequences, alphas
+        # Cập nhật seqs và seqs_alpha
         seqs = torch.cat([seqs[prev_word_inds], next_word_inds.unsqueeze(1)], dim=1)  # (s, step+1)
         seqs_alpha = torch.cat([seqs_alpha[prev_word_inds], alpha[prev_word_inds].unsqueeze(1)],
                                dim=1)  # (s, step+1, enc_image_size, enc_image_size)
 
-        # Which sequences are incomplete (didn't reach <end>)?
+        # Tách các sequence chưa kết thúc và đã kết thúc
         incomplete_inds = [ind for ind, next_word in enumerate(next_word_inds) if
                            next_word != word_map['<end>']]
         complete_inds = list(set(range(len(next_word_inds))) - set(incomplete_inds))
 
-        # Set aside complete sequences
+        # Lưu các sequence hoàn chỉnh
         if len(complete_inds) > 0:
             complete_seqs.extend(seqs[complete_inds].tolist())
             complete_seqs_alpha.extend(seqs_alpha[complete_inds].tolist())
             complete_seqs_scores.extend(top_k_scores[complete_inds])
-        k -= len(complete_inds)  # reduce beam length accordingly
+        k -= len(complete_inds)  # giảm beam size
 
-        # Proceed with incomplete sequences
+        # Nếu không còn sequence đang tiến hành thì dừng
         if k == 0:
             break
         seqs = seqs[incomplete_inds]
@@ -135,11 +131,12 @@ def caption_image_beam_search(encoder, decoder, image_path, word_map, beam_size=
         top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
         k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
 
-        # Break if things have been going on too long
+        # Bảo vệ vòng lặp tránh quá dài
         if step > 50:
             break
         step += 1
 
+    # Chọn sequence có điểm cao nhất
     i = complete_seqs_scores.index(max(complete_seqs_scores))
     seq = complete_seqs[i]
     alphas = complete_seqs_alpha[i]
@@ -148,27 +145,18 @@ def caption_image_beam_search(encoder, decoder, image_path, word_map, beam_size=
 
 
 def visualize_att(image_path, seq, alphas, rev_word_map, smooth=True):
-    """
-    Visualizes caption with weights at every word.
-
-    Adapted from paper authors' repo: https://github.com/kelvinxu/arctic-captions/blob/master/alpha_visualization.ipynb
-
-    :param image_path: path to image that has been captioned
-    :param seq: caption
-    :param alphas: weights
-    :param rev_word_map: reverse word mapping, i.e. ix2word
-    :param smooth: smooth weights?
-    """
+    # Hiển thị ảnh và overlay attention cho từng từ
     image = Image.open(image_path)
     image = image.resize([14 * 24, 14 * 24], Image.LANCZOS)
 
     words = [rev_word_map[ind] for ind in seq]
 
+    plt.figure(figsize=(15, 8))
+
     for t in range(len(words)):
         if t > 50:
             break
-        plt.subplot(np.ceil(len(words) / 5.), 5, t + 1)
-
+        plt.subplot(int(np.ceil(len(words) / 5)), 5, t + 1)
         plt.text(0, 1, '%s' % (words[t]), color='black', backgroundcolor='white', fontsize=12)
         plt.imshow(image)
         current_alpha = alphas[t, :]
@@ -182,22 +170,24 @@ def visualize_att(image_path, seq, alphas, rev_word_map, smooth=True):
             plt.imshow(alpha, alpha=0.8)
         plt.set_cmap(cm.Greys_r)
         plt.axis('off')
+    plt.savefig('attention_result.png')
+    plt.tight_layout()
     plt.show()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Show, Attend, and Tell - Tutorial - Generate Caption')
+    parser = argparse.ArgumentParser(description='Hiển thị mô hình Show, Attend and Tell - sinh caption')
 
-    parser.add_argument('--img', '-i', help='path to image')
-    parser.add_argument('--model', '-m', help='path to model')
-    parser.add_argument('--word_map', '-wm', help='path to word map JSON')
-    parser.add_argument('--beam_size', '-b', default=5, type=int, help='beam size for beam search')
-    parser.add_argument('--dont_smooth', dest='smooth', action='store_false', help='do not smooth alpha overlay')
+    parser.add_argument('--img', '-i', help='đường dẫn ảnh')
+    parser.add_argument('--model', '-m', help='đường dẫn file checkpoint mô hình')
+    parser.add_argument('--word_map', '-wm', help='đường dẫn file word map JSON')
+    parser.add_argument('--beam_size', '-b', default=5, type=int, help='kích thước beam cho beam search')
+    parser.add_argument('--dont_smooth', dest='smooth', action='store_false', help='không làm mịn overlay alpha')
 
     args = parser.parse_args()
 
-    # Load model
-    checkpoint = torch.load(args.model, map_location=str(device))
+    # Tải mô hình
+    checkpoint = torch.load(args.model, map_location=str(device), weights_only=False)
     decoder = checkpoint['decoder']
     decoder = decoder.to(device)
     decoder.eval()
@@ -205,14 +195,14 @@ if __name__ == '__main__':
     encoder = encoder.to(device)
     encoder.eval()
 
-    # Load word map (word2ix)
+    # Tải word map (word2ix)
     with open(args.word_map, 'r') as j:
         word_map = json.load(j)
     rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
 
-    # Encode, decode with attention and beam search
+    # Encode, decode với attention và beam search
     seq, alphas = caption_image_beam_search(encoder, decoder, args.img, word_map, args.beam_size)
     alphas = torch.FloatTensor(alphas)
 
-    # Visualize caption and attention of best sequence
+    # Hiển thị caption và attention cho sequence tốt nhất
     visualize_att(args.img, seq, alphas, rev_word_map, args.smooth)
