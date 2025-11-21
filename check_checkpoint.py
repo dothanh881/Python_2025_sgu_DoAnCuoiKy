@@ -3,7 +3,7 @@ import os
 
 def check_checkpoint(checkpoint_path):
     """
-    Kiểm tra thông tin trong checkpoint file
+    check thông tin trong checkpoint file
     """
     if not os.path.exists(checkpoint_path):
         print(f" Checkpoint file không tồn tại: {checkpoint_path}")

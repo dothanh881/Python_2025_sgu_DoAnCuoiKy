@@ -8,7 +8,7 @@ import os
 # ĐIỀU CHỈNH: đặt DATA_DIR tới thư mục trên Drive nơi bạn lưu dataset
 DATA_DIR = '/content/drive/MyDrive/Image_captioning_flickr8k/dataset'  # <- sửa đúng đường dẫn của bạn
 
-# Tên file/folder bên trong DATA_DIR (chỉnh nếu khác)
+# Tên file/folder bên trong DATA_DIR
 KARPATHY_JSON =  '/content/drive/MyDrive/Image_captioning_flickr8k/dataset/dataset_flickr8k.json'     # file JSON bạn đã tạo
 IMAGE_FOLDER = '/content/drive/MyDrive/Image_captioning_flickr8k/dataset/Flicker8k_Dataset'           # folder chứa ảnh (flat)
 OUTPUT_FOLDER = '/content/drive/MyDrive/Image_captioning_flickr8k/dataset/flickr8k_processed'       # nơi lưu HDF5 + WORDMAP + captions

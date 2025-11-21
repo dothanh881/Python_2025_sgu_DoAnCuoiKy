@@ -131,7 +131,7 @@ def caption_image_beam_search(encoder, decoder, image_path, word_map, beam_size=
         top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
         k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
 
-        # Bảo vệ vòng lặp tránh quá dài
+        #  validate tránh quá dài
         if step > 50:
             break
         step += 1

@@ -38,7 +38,7 @@ normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
 
 def evaluate(beam_size):
     """
-    Hàm đánh giá mô hình bằng BLEU-4 sử dụng Beam Search.
+     đánh giá mô hình bằng BLEU-4 sử dụng Beam Search.
 
     :param beam_size: kích thước beam khi sinh caption
     :return: BLEU-4 score

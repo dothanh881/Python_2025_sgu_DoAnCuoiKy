@@ -31,7 +31,7 @@ class Encoder(nn.Module):
         Lan truyền tiến của encoder.
 
         :param images: tensor ảnh kích thước (batch_size, 3, image_size, image_size)
-        :return: tensor đặc trưng đã mã hóa
+        : tensor đặc trưng đã mã hóa
         """
         out = self.resnet(images)  # (batch_size, 2048, image_size/32, image_size/32)
         out = self.adaptive_pool(out)  # (batch_size, 2048, enc_image_size, enc_image_size)

@@ -341,7 +341,7 @@ def save_checkpoint(data_name, epoch, epochs_since_improvement, encoder, decoder
 
 class AverageMeter(object):
     """
-    Theo dõi giá trị hiện tại, trung bình, tổng và số lượng của một metric.
+         giá trị hiện tại, trung bình, tổng và số lượng của một metric.
     """
     def __init__(self):
         self.reset()

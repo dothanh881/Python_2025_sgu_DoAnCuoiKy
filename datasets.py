@@ -7,7 +7,7 @@ import os
 
 class CaptionDataset(Dataset):
     """
-    Lớp Dataset của PyTorch để tạo batch cho DataLoader.
+     Dataset của PyTorch để tạo batch cho DataLoader.
     """
 
     def __init__(self, data_folder, data_name, split, transform=None):

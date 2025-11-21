@@ -34,8 +34,8 @@ alpha_c = 1.  # hệ số regularization cho 'doubly stochastic attention'
 best_bleu4 = 0.  # BLEU-4 tốt nhất hiện tại
 print_freq = 100  # in thông tin huấn luyện/validation mỗi __ batch
 fine_tune_encoder = False  # có fine-tune encoder không?
-# Để tiếp tục training, đặt checkpoint path. Để train từ đầu, đặt None
-# QUAN TRỌNG: Đảm bảo file checkpoint tồn tại tại đường dẫn này!
+#  tiếp tục training, đặt checkpoint path. Để train từ đầu, đặt None
+# Đảm bảo file checkpoint tồn tại tại đường dẫn này
 checkpoint_path = 'BEST_checkpoint_flickr8k_5_cap_per_img_5_min_word_freq.pth.tar'
 
 # Kiểm tra file tồn tại trước khi sử dụng
