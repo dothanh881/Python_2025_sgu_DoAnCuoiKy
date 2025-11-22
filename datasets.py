@@ -52,7 +52,8 @@ class CaptionDataset(Dataset):
         caplen = torch.LongTensor([self.caplens[i]])
 
         # Nếu đang ở split TRAIN, trả về (img, caption, caplen)
-        if self.split is 'TRAIN':
+        # So sánh chuỗi đúng chuẩn: dùng ==, không dùng 'is'
+        if self.split == 'TRAIN':
             return img, caption, caplen
         else:
             # Với VAL/TEST, trả thêm tất cả captions của ảnh để tính BLEU

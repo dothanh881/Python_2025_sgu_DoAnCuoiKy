@@ -23,7 +23,11 @@ cudnn.benchmark = True  # bật nếu kích thước input cố định để t�
 
 # Tham số huấn luyện
 start_epoch = 0
+# epochs là tổng số epoch mong muốn (mặc định)
 epochs = 10  # số epoch để train (tăng nếu muốn train lâu hơn)
+# Nếu muốn khi resume từ checkpoint train thêm N epoch so với epoch đã lưu, đặt thêm tham số này.
+# Ví dụ: additional_epochs = 5 sẽ làm epochs = (checkpoint_epoch + 5) khi resume từ checkpoint.
+additional_epochs = None  # đặt thành số nguyên (ví dụ 5) để train thêm N epoch khi resume
 epochs_since_improvement = 0  # số epoch kể từ lần cải thiện BLEU gần nhất
 batch_size = 32
 workers = 1  # số worker cho data-loading; hiện chỉ 1 chạy tốt với h5py
@@ -34,21 +38,86 @@ alpha_c = 1.  # hệ số regularization cho 'doubly stochastic attention'
 best_bleu4 = 0.  # BLEU-4 tốt nhất hiện tại
 print_freq = 100  # in thông tin huấn luyện/validation mỗi __ batch
 fine_tune_encoder = False  # có fine-tune encoder không?
-#  tiếp tục training, đặt checkpoint path. Để train từ đầu, đặt None
-# Đảm bảo file checkpoint tồn tại tại đường dẫn này
-checkpoint_path = 'BEST_checkpoint_flickr8k_5_cap_per_img_5_min_word_freq.pth.tar'
 
-# Kiểm tra file tồn tại trước khi sử dụng
-if checkpoint_path and os.path.exists(checkpoint_path):
-    checkpoint = checkpoint_path
-    print(f" Found checkpoint: {checkpoint_path}")
+# Thiết lập tham số resume/checkpoint bằng argparse để dễ dùng trên Colab.
+import argparse
+parser = argparse.ArgumentParser(description='Train model or resume from checkpoint')
+parser.add_argument('--resume', choices=['best', 'latest', 'none', 'path'], default='best',
+                    help="Chọn checkpoint để resume: 'best' (BEST_checkpoint), 'latest' (checkpoint_), 'none' (train from scratch), or 'path' (kết hợp với --checkpoint)")
+parser.add_argument('--checkpoint', type=str, default=None, help='Đường dẫn tới file checkpoint (dùng khi --resume path)')
+parser.add_argument('--additional_epochs', type=int, default=None, help='Số epoch muốn train thêm khi resume từ checkpoint')
+args, unknown = parser.parse_known_args()
+
+# Ánh xạ tham số từ args
+if args.additional_epochs is not None:
+    additional_epochs = args.additional_epochs
+
+# Xác định đường dẫn checkpoint dựa theo lựa chọn resume
+def _checkpoint_path_for(mode):
+    # mode: 'best'|'latest'|'none'|'path'
+    # Tạo danh sách vị trí có thể chứa checkpoint để kiểm tra: data_folder và project root
+    project_root = os.path.dirname(os.path.abspath(__file__))
+
+    best_filename = 'BEST_' + 'checkpoint_' + data_name + '.pth.tar'
+    latest_filename = 'checkpoint_' + data_name + '.pth.tar'
+
+    candidates = []
+    # data_folder locations
+    candidates.append(os.path.join(data_folder, latest_filename))
+    candidates.append(os.path.join(data_folder, best_filename))
+    # project root locations
+    candidates.append(os.path.join(project_root, latest_filename))
+    candidates.append(os.path.join(project_root, best_filename))
+    # cwd locations
+    candidates.append(os.path.join(os.getcwd(), latest_filename))
+    candidates.append(os.path.join(os.getcwd(), best_filename))
+
+    # For debugging: print candidates that will be checked
+    print(f"[DEBUG] Looking for checkpoint (mode={mode}). Checking these candidate paths:")
+    for p in candidates:
+        exists = os.path.exists(p)
+        print(f"  - {p} -> {'FOUND' if exists else 'missing'}")
+
+    if mode == 'none':
+        return None
+    if mode == 'path':
+        return args.checkpoint
+    if mode == 'latest':
+        # trả về first existing latest; nếu không có, fallback first existing best; else None
+        for p in candidates:
+            if os.path.basename(p) == latest_filename and os.path.exists(p):
+                print(f"[DEBUG] Selected latest: {p}")
+                return p
+        for p in candidates:
+            if os.path.basename(p) == best_filename and os.path.exists(p):
+                print(f"[DEBUG] Fallback to best: {p}")
+                return p
+        print("[DEBUG] No latest or best found among candidates.")
+        return None
+    # default 'best' -> tìm best trước, sau đó latest
+    for p in candidates:
+        if os.path.basename(p) == best_filename and os.path.exists(p):
+            print(f"[DEBUG] Selected best: {p}")
+            return p
+    for p in candidates:
+        if os.path.basename(p) == latest_filename and os.path.exists(p):
+            print(f"[DEBUG] Selected latest (as fallback): {p}")
+            return p
+    print("[DEBUG] No best or latest found among candidates.")
+    return None
+
+# Thiết lập checkpoint_path theo lựa chọn
+checkpoint_path = _checkpoint_path_for(args.resume)
+if checkpoint_path:
+    if os.path.exists(checkpoint_path):
+        checkpoint = checkpoint_path
+        print(f"Found checkpoint: {checkpoint_path}")
+    else:
+        checkpoint = None
+        print(f"Requested checkpoint not found: {checkpoint_path}. Starting from scratch or set --resume appropriately.")
 else:
     checkpoint = None
-    if checkpoint_path:
-        print(f" Checkpoint not found: {checkpoint_path}")
-        print(" Starting training from scratch...")
-    else:
-        print(" Starting fresh training...")
+    print("No checkpoint requested: starting fresh training...")
 
 
 def main():
@@ -56,7 +125,7 @@ def main():
     Huấn luyện và đánh giá mô hình.
     """
 
-    global best_bleu4, epochs_since_improvement, checkpoint, start_epoch, fine_tune_encoder, data_name, word_map
+    global best_bleu4, epochs_since_improvement, checkpoint, start_epoch, fine_tune_encoder, data_name, word_map, epochs
 
     # Đọc word map
     word_map_file = os.path.join(data_folder, 'WORDMAP_' + data_name + '.json')
@@ -90,6 +159,37 @@ def main():
         print(f"Loaded checkpoint from epoch {checkpoint_data['epoch']}")
         print(f"Resuming training from epoch {start_epoch}")
         print(f"Best BLEU-4 so far: {best_bleu4}")
+
+        # Nếu muốn train thêm một số epoch so với checkpoint đã load, điều chỉnh biến `epochs`.
+        # Ví dụ: nếu checkpoint_epoch = 14 và additional_epochs = 5 thì epochs sẽ được đặt thành 20
+        if additional_epochs is not None:
+            try:
+                additional_epochs_int = int(additional_epochs)
+                # epochs là giá trị *một quá* so với epoch cuối cùng (vì range(start_epoch, epochs) chạy tới epochs-1)
+                # Để train thêm N epoch (ví dụ từ 15..19 nếu checkpoint_epoch=14 và N=5),
+                # ta cần epochs = checkpoint_epoch + N + 1
+                epochs = checkpoint_data['epoch'] + additional_epochs_int + 1
+                print(f"Adjusted total epochs to {epochs} (will train epochs {start_epoch}..{epochs-1})")
+            except Exception:
+                print("Warning: additional_epochs không phải số nguyên, bỏ qua việc điều chỉnh epochs.")
+
+        # Bảo vệ: nếu user không cung cấp additional_epochs và biến epochs mặc định nhỏ hơn hoặc bằng
+        # start_epoch (ví dụ mặc định epochs=10 nhưng checkpoint ở epoch 14), ta cần điều chỉnh
+        # để tránh range(start_epoch, epochs) rỗng (không train gì hết).
+        if epochs <= start_epoch:
+            if additional_epochs is not None:
+                # đã cố gắng set epochs ở trên; nếu vẫn không hợp lệ thì đặt epochs = start_epoch + additional_epochs_int
+                try:
+                    epochs = start_epoch + max(1, int(additional_epochs))
+                    print(f"Note: epochs adjusted to {epochs} based on additional_epochs to allow training to continue.")
+                except Exception:
+                    epochs = start_epoch + 1
+                    print(f"Note: epochs adjusted to {epochs} to ensure at least one epoch of training.")
+            else:
+                # Không có additional_epochs, đặt ít nhất train 1 epoch tiếp
+                epochs = start_epoch + 1
+                print(f"Note: epochs was <= start_epoch, adjusted to {epochs} to ensure at least one epoch of training.")
+
         if fine_tune_encoder is True and encoder_optimizer is None:
             encoder.fine_tune(fine_tune_encoder)
             encoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, encoder.parameters()),
